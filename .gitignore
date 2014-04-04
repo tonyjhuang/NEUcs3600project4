@@ -2,3 +2,8 @@
 3600recv
 3600send
 3600sendrecv.o
+
+# Emacs auto-save files
+
+\#*
+\.\#*
