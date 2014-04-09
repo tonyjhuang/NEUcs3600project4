@@ -137,7 +137,7 @@ int main(int argc, char *argv[]) {
   t.tv_usec = 0;
 
   while (send_next_packet(sock, out)) {
-    int done = 0;
+    int done = 1; // fuck timeouts
 
     while (! done) {
       FD_ZERO(&socks);
