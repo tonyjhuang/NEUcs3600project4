@@ -5,7 +5,7 @@ Simple Transport Protocol project for Systems &amp; Networks (Northeastern Unive
 
 Sliding window concept (Sender):
 - Assumed window size of 5 packets. Can (should) be changed.
-- Keep buffer of packets that need to be sent. Buffer should be twice the window size.
+- Keep buffer of packets that need to be sent. Buffer should be the same as window size.
 - Read packets until buffer is full.
 - Send out one at a time, up to a maximum of five packets.
 - Once an ack is received for a packet:
