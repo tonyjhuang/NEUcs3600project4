@@ -19,6 +19,13 @@ typedef struct header_t {
   unsigned int sequence;
 } header;
 
+// Struct to keep information about a packet.
+typedef struct packet_info_t {
+  void *packet;
+  time_t retrieved;
+  int data_len;
+} packet_info;
+
 unsigned int MAGIC;
 
 void dump_packet(unsigned char *data, int size);

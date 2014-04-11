@@ -22,9 +22,11 @@
 
 #include "3600sendrecv.h"
 
-static int DATA_SIZE = 1460;
+static int DATA_SIZE   = 1460;
+static int WINDOW_SIZE = 5;
 
-unsigned int sequence = 0;
+unsigned int last_ackd = 0;
+unsigned int sequence  = 0;
 
 void usage() {
   printf("Usage: 3600send host:port\n");
@@ -41,8 +43,9 @@ int get_next_data(char *data, int size) {
 /**
  * Builds and returns the next packet, or NULL
  * if no more data is available.
+ * max on data_len is 254, size of header is 8
  */
-void *get_next_packet(int sequence, int *len) {
+packet_info *get_next_packet(int sequence) {
   char *data = malloc(DATA_SIZE);
   int data_len = get_next_data(data, DATA_SIZE);
 
@@ -59,15 +62,15 @@ void *get_next_packet(int sequence, int *len) {
   free(data);
   free(myheader);
 
-  *len = sizeof(header) + data_len;
+  packet_info *info = (packet_info *) malloc(sizeof(packet_info));
+  info->packet    = packet;
+  info->retrieved = time(0);
+  info->data_len  = data_len;
 
-  return packet;
+  return info;
 }
 
-int send_next_packet(int sock, struct sockaddr_in out) {
-  int packet_len = 0;
-  void *packet = get_next_packet(sequence, &packet_len);
-
+int send_packet(int sock, struct sockaddr_in out, void *packet, int packet_len) {
   if (packet == NULL) 
     return 0;
 
@@ -78,7 +81,7 @@ int send_next_packet(int sock, struct sockaddr_in out) {
     exit(1);
   }
 
-  return 1;
+  return 1;  
 }
 
 void send_final_packet(int sock, struct sockaddr_in out) {
@@ -133,13 +136,36 @@ int main(int argc, char *argv[]) {
 
   // construct the timeout
   struct timeval t;
-  t.tv_sec = 30;
+  t.tv_sec = 1;
   t.tv_usec = 0;
 
-  while (send_next_packet(sock, out)) {
-    int done = 1; // fuck timeouts
+  packet_info packet_buffer[WINDOW_SIZE];
+  // Oldest packet in buffer that has been sent but has not been ackd
+  int packet_unackd = 0;
+  // Packet next in line once packet_unackd has been ackd and removed from the buffer
+  int packet_next   = 0; 
+  // Last packet in line to be sent.
+  int packet_newest = 0;
 
-    while (! done) {
+  // packet_unacked <= packet_next <= packet_newest
+
+  // Note:
+  // To send packet: send_next_packet(sock, out)
+  // Make sure to end with send_final_packet(sock, out)
+  packet_info *info;
+
+  if(packet_newest - packet_unackd < WINDOW_SIZE) { // Buffer not full, retrieve next packet
+    if((info = get_next_packet(sequence)) != NULL)
+      packet_buffer[++packet_newest % WINDOW_SIZE] = *info;
+  }
+
+    //dump_packet(packet_buffer[0].packet, packet_buffer[0].data_len + sizeof(header));
+    //dump_packet(packet, packet_len);
+
+  /*  while (send_next_packet(sock, out)) {
+    int done = 0; // fuck timeouts
+
+    while (!done) {
       FD_ZERO(&socks);
       FD_SET(sock, &socks);
 
@@ -167,8 +193,8 @@ int main(int argc, char *argv[]) {
       }
     }
   }
-
-  send_final_packet(sock, out);
+  */
+  //  send_final_packet(sock, out);
 
   mylog("[completed]\n");
 

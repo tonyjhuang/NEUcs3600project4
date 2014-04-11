@@ -9,7 +9,7 @@ Sliding window concept (Sender):
 - Read packets until buffer is full.
 - Send out one at a time, up to a maximum of five packets.
 - Once an ack is received for a packet:
-  - Remove the ack'd packet
+  - Remove the ack'd packet from the buffer
   - Retrieve the next packet from stdout
   - Send the next packet in line to be sent
 
