@@ -71,39 +71,15 @@ packet_info *get_next_packet_info(int sequence) {
   return info;
 }
 
-void *get_next_packet(int sequence, int *len) {
-  char *data = malloc(DATA_SIZE);
-  int data_len = get_next_data(data, DATA_SIZE);
-
-  if (data_len == 0) {
-    free(data);
-    return NULL;
-  }
-
-  header *myheader = make_header(sequence, data_len, 0, 0);
-  void *packet = malloc(sizeof(header) + data_len);
-  memcpy(packet, myheader, sizeof(header));
-  memcpy(((char *) packet) +sizeof(header), data, data_len);
-
-  free(data);
-  free(myheader);
-
-  *len = sizeof(header) + data_len;
-
-  return packet;
-}
-
-
+// They don't think it be like it is, but it do.
 int send_packet_info(int sock, struct sockaddr_in out, packet_info *info) {
   if (info->packet == NULL) 
     return 0;
 
   mylog("[send data] sequence: %d, data_len: %d\n", info->sequence, info->data_len);
-  mylog("sock: %d, socklen: %d\n", sock, sizeof(out));
   
-  send_final_packet(sock, out);
-
-  if(sendto(sock, "hello world", 12, 0, (struct sockaddr *) &out, sizeof(out)) < 0) {
+  if(sendto(sock, info->packet, info->data_len + sizeof(header), 
+	    0, (struct sockaddr *) &out, sizeof(out)) < 0) {
 
   //  if (sendto(sock, ptr, 0, 0, //info->data_len + sizeof(header), 0, 
   //	     (const struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
@@ -128,6 +104,7 @@ void send_final_packet(int sock, struct sockaddr_in out) {
 
 int main(int argc, char *argv[]) {
   /**
+
    * I've included some basic code for opening a UDP socket in C, 
    * binding to a empheral port, printing out the port number.
    * 
@@ -190,33 +167,29 @@ int main(int argc, char *argv[]) {
    * -remove the ack'd packet
    */
   while(1) {
-    break;
     /**
      * if buffer isn't full, get the next packet and add it to the buffer
      * then immediately send it off
      */
-    /*    if(packet_next - packet_unackd < WINDOW_SIZE) {
-      mylog("looking for next packet..\n");
+    if(packet_next - packet_unackd < WINDOW_SIZE) {
+      mylog("looking for next packet.., next: %d, unackd: %d\n", packet_next, packet_unackd);
       // Are there any new packets to send? if so, store and send exactly one.
       if((info = get_next_packet_info(sequence)) != NULL) {
 	int packet_next_index = packet_next % WINDOW_SIZE;
 	packet_buffer[packet_next_index] = *info;
 	send_packet_info(sock, out, info);
 	packet_next++;
+	sequence += info->data_len;
       } else {
 	send_final_packet(sock, out);
 	break;
       }
-      }*/
+    } else {
+      send_final_packet(sock, out);
+      break;
+    }
   }
 
-  int packet_len = 0;
-  void *packet = get_next_packet(sequence, &packet_len);
-  //  info = get_next_packet_info(sequence);
-  if (sendto(sock, packet, packet_len, 0, (struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
-    perror("sendto");
-    exit(1);
-  }
 
 
     //dump_packet(packet_buffer[0].packet, packet_buffer[0].data_len + sizeof(header));
