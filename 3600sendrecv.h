@@ -24,6 +24,7 @@ typedef struct packet_info_t {
   void *packet;
   time_t retrieved;
   int data_len;
+  int sequence;
 } packet_info;
 
 unsigned int MAGIC;

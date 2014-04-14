@@ -41,11 +41,11 @@ int get_next_data(char *data, int size) {
 }
 
 /**
- * Builds and returns the next packet, or NULL
+ * Builds and returns the next packet info, or NULL
  * if no more data is available.
  * max on data_len is 254, size of header is 8
  */
-packet_info *get_next_packet(int sequence) {
+packet_info *get_next_packet_info(int sequence) {
   char *data = malloc(DATA_SIZE);
   int data_len = get_next_data(data, DATA_SIZE);
 
@@ -66,19 +66,50 @@ packet_info *get_next_packet(int sequence) {
   info->packet    = packet;
   info->retrieved = time(0);
   info->data_len  = data_len;
+  info->sequence  = sequence;
 
   return info;
 }
 
-int send_packet(int sock, struct sockaddr_in out, void *packet, int packet_len) {
-  if (packet == NULL) 
+void *get_next_packet(int sequence, int *len) {
+  char *data = malloc(DATA_SIZE);
+  int data_len = get_next_data(data, DATA_SIZE);
+
+  if (data_len == 0) {
+    free(data);
+    return NULL;
+  }
+
+  header *myheader = make_header(sequence, data_len, 0, 0);
+  void *packet = malloc(sizeof(header) + data_len);
+  memcpy(packet, myheader, sizeof(header));
+  memcpy(((char *) packet) +sizeof(header), data, data_len);
+
+  free(data);
+  free(myheader);
+
+  *len = sizeof(header) + data_len;
+
+  return packet;
+}
+
+
+int send_packet_info(int sock, struct sockaddr_in out, packet_info *info) {
+  if (info->packet == NULL) 
     return 0;
 
-  mylog("[send data] %d (%d)\n", sequence, packet_len - sizeof(header));
+  mylog("[send data] sequence: %d, data_len: %d\n", info->sequence, info->data_len);
+  mylog("sock: %d, socklen: %d\n", sock, sizeof(out));
+  
+  send_final_packet(sock, out);
 
-  if (sendto(sock, packet, packet_len, 0, (struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
+  if(sendto(sock, "hello world", 12, 0, (struct sockaddr *) &out, sizeof(out)) < 0) {
+
+  //  if (sendto(sock, ptr, 0, 0, //info->data_len + sizeof(header), 0, 
+  //	     (const struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
+    mylog("error in sendto?\n");
     perror("sendto");
-    exit(1);
+    //exit(1);
   }
 
   return 1;  
@@ -89,6 +120,7 @@ void send_final_packet(int sock, struct sockaddr_in out) {
   mylog("[send eof]\n");
 
   if (sendto(sock, myheader, sizeof(header), 0, (struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
+    mylog("final packet errored out!\n");
     perror("sendto");
     exit(1);
   }
@@ -142,22 +174,50 @@ int main(int argc, char *argv[]) {
   packet_info packet_buffer[WINDOW_SIZE];
   // Oldest packet in buffer that has been sent but has not been ackd
   int packet_unackd = 0;
-  // Packet next in line once packet_unackd has been ackd and removed from the buffer
+  // next free spot in buffer
   int packet_next   = 0; 
-  // Last packet in line to be sent.
-  int packet_newest = 0;
-
-  // packet_unacked <= packet_next <= packet_newest
 
   // Note:
-  // To send packet: send_next_packet(sock, out)
+  // To send packet: send_packet(sock, out, packet_info)
   // Make sure to end with send_final_packet(sock, out)
   packet_info *info;
 
-  if(packet_newest - packet_unackd < WINDOW_SIZE) { // Buffer not full, retrieve next packet
-    if((info = get_next_packet(sequence)) != NULL)
-      packet_buffer[++packet_newest % WINDOW_SIZE] = *info;
+  /**
+   * main program loop. Do the following steps:
+   * -check if buffer has empty spots
+   * -fill one empty buffer spot & send off that packet
+   * -check if any acks came in
+   * -remove the ack'd packet
+   */
+  while(1) {
+    break;
+    /**
+     * if buffer isn't full, get the next packet and add it to the buffer
+     * then immediately send it off
+     */
+    /*    if(packet_next - packet_unackd < WINDOW_SIZE) {
+      mylog("looking for next packet..\n");
+      // Are there any new packets to send? if so, store and send exactly one.
+      if((info = get_next_packet_info(sequence)) != NULL) {
+	int packet_next_index = packet_next % WINDOW_SIZE;
+	packet_buffer[packet_next_index] = *info;
+	send_packet_info(sock, out, info);
+	packet_next++;
+      } else {
+	send_final_packet(sock, out);
+	break;
+      }
+      }*/
   }
+
+  int packet_len = 0;
+  void *packet = get_next_packet(sequence, &packet_len);
+  //  info = get_next_packet_info(sequence);
+  if (sendto(sock, packet, packet_len, 0, (struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
+    perror("sendto");
+    exit(1);
+  }
+
 
     //dump_packet(packet_buffer[0].packet, packet_buffer[0].data_len + sizeof(header));
     //dump_packet(packet, packet_len);
