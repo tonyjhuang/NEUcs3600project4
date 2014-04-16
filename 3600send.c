@@ -23,7 +23,7 @@
 #include "3600sendrecv.h"
 
 static int DATA_SIZE   = 1460;
-static int WINDOW_SIZE = 5;
+static int WINDOW_SIZE = 20;
 
 unsigned int last_ackd = 0;
 unsigned int sequence  = 0;
@@ -81,8 +81,6 @@ int send_packet_info(int sock, struct sockaddr_in out, packet_info *info) {
   if(sendto(sock, info->packet, info->data_len + sizeof(header), 
 	    0, (struct sockaddr *) &out, sizeof(out)) < 0) {
 
-  //  if (sendto(sock, ptr, 0, 0, //info->data_len + sizeof(header), 0, 
-  //	     (const struct sockaddr *) &out, (socklen_t) sizeof(out)) < 0) {
     mylog("error in sendto?\n");
     perror("sendto");
     //exit(1);
@@ -143,10 +141,17 @@ int main(int argc, char *argv[]) {
   // construct the socket set
   fd_set socks;
 
-  // construct the timeout
+  //*REPURPOSED! READ!!! *********************************************
+  /**
+   *Since our protocol in its current state checks the sockets for acks
+   *every loop, we want this timeout to be very small to avoid blocking
+   * for too long. You want to create a new timeout using the time in
+   * a packet's packet_info for proper timeouts. 
+   * See packet_info in 3600sendrecv.h
+   */
   struct timeval t;
-  t.tv_sec = 1;
-  t.tv_usec = 0;
+  t.tv_sec = 0;
+  t.tv_usec = 5000;
 
   packet_info packet_buffer[WINDOW_SIZE];
   // Oldest packet in buffer that has been sent but has not been ackd
@@ -172,7 +177,6 @@ int main(int argc, char *argv[]) {
      * then immediately send it off
      */
     if(packet_next - packet_unackd < WINDOW_SIZE) {
-      mylog("looking for next packet.., next: %d, unackd: %d\n", packet_next, packet_unackd);
       // Are there any new packets to send? if so, store and send exactly one.
       if((info = get_next_packet_info(sequence)) != NULL) {
 	int packet_next_index = packet_next % WINDOW_SIZE;
@@ -181,51 +185,89 @@ int main(int argc, char *argv[]) {
 	packet_next++;
 	sequence += info->data_len;
       } else {
-	send_final_packet(sock, out);
-	break;
+	// if there are no more packets and we have no packets in buffer, break from loop
+	if(packet_next == packet_unackd)
+	  break;
       }
-    } else {
-      send_final_packet(sock, out);
-      break;
+    } 
+
+    // Check for acks
+    FD_ZERO(&socks);
+    FD_SET(sock, &socks);
+
+    // wait to receive, or for a timeout
+    if (select(sock + 1, &socks, NULL, NULL, &t)) {
+      unsigned char buf[10000];
+      int buf_len = sizeof(buf);
+      int received;
+      if ((received = recvfrom(sock, &buf, buf_len, 0, (struct sockaddr *) &in, (socklen_t *) &in_len)) < 0) {
+	perror("recvfrom");
+	exit(1);
+      }
+
+      //      mylog("\nRECEIVED PACKET: ");
+      header *myheader = get_header(buf);
+      //      mylog("sequence: %d, ack: %d, magic: %d\n", myheader->sequence, myheader->ack, myheader->magic);
+      //      mylog("packet_unackd: %d, looking for - sequence: %d, magic: %d\n", packet_unackd, 
+      //	    packet_buffer[packet_unackd % WINDOW_SIZE].sequence,
+      //	    get_header(packet_buffer[packet_unackd % WINDOW_SIZE].packet)->magic);
+      //      sleep(1);
+
+
+      if ((myheader->magic == MAGIC) && (myheader->ack == 1)) {
+	packet_info unackd = packet_buffer[packet_unackd % WINDOW_SIZE];
+	if(myheader->sequence == unackd.sequence + unackd.data_len) {
+	  mylog("[recv ack] %d\n", myheader->sequence);
+	  packet_unackd++;
+	} else {
+	  mylog("[recv sequence mismatch]\n");
+	}
+      } else {
+	mylog("[recv corrupted ack] %x %d\n", MAGIC, sequence);
+      }
     }
+
+    //    sleep(1);
+    
   }
 
+  // Eventually we'll want to make sure that the final packet was ack'd before exiting.
+  send_final_packet(sock, out);
 
-
-    //dump_packet(packet_buffer[0].packet, packet_buffer[0].data_len + sizeof(header));
-    //dump_packet(packet, packet_len);
+  //dump_packet(packet_buffer[0].packet, packet_buffer[0].data_len + sizeof(header));
+  //dump_packet(packet, packet_len);
 
   /*  while (send_next_packet(sock, out)) {
-    int done = 0; // fuck timeouts
+      int done = 0; // fuck timeouts
 
-    while (!done) {
+      while (!done) {
       FD_ZERO(&socks);
       FD_SET(sock, &socks);
 
       // wait to receive, or for a timeout
       if (select(sock + 1, &socks, NULL, NULL, &t)) {
-        unsigned char buf[10000];
-        int buf_len = sizeof(buf);
-        int received;
-        if ((received = recvfrom(sock, &buf, buf_len, 0, (struct sockaddr *) &in, (socklen_t *) &in_len)) < 0) {
-          perror("recvfrom");
-          exit(1);
-        }
-
-        header *myheader = get_header(buf);
-
-        if ((myheader->magic == MAGIC) && (myheader->sequence >= sequence) && (myheader->ack == 1)) {
-          mylog("[recv ack] %d\n", myheader->sequence);
-          sequence = myheader->sequence;
-          done = 1;
-        } else {
-          mylog("[recv corrupted ack] %x %d\n", MAGIC, sequence);
-        }
-      } else {
-        mylog("[error] timeout occurred\n");
+      unsigned char buf[10000];
+      int buf_len = sizeof(buf);
+      int received;
+      if ((received = recvfrom(sock, &buf, buf_len, 0, (struct sockaddr *) &in, (socklen_t *) &in_len)) < 0) {
+      perror("recvfrom");
+      exit(1);
       }
-    }
-  }
+
+      header *myheader = get_header(buf);
+
+      if ((myheader->magic == MAGIC) && (myheader->sequence >= sequence) && (myheader->ack == 1)) {
+      mylog("[recv ack] %d\n", myheader->sequence);
+      sequence = myheader->sequence;
+      done = 1;
+      } else {
+      mylog("[recv corrupted ack] %x %d\n", MAGIC, sequence);
+      }
+      } else {
+      mylog("[error] timeout occurred\n");
+      }
+      }
+      }
   */
   //  send_final_packet(sock, out);
 
